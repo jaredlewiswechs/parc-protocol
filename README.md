@@ -140,4 +140,6 @@ MIT License — free for commercial and academic use.
 
 ## 📬 Contact
 
-youremail@domain.com
+jn.lewis1@outlook.com
+or
+jared.lewis@houstonisd.org
