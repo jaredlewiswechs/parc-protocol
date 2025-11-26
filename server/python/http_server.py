@@ -1,175 +1,108 @@
-#!/usr/bin/env python3
-# UTF-PARC Reference HTTP Server (Python)
-# Version 1.0
+"""
+HTTP-PARC Reference Server (Python)
+===================================
 
-import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs
+A minimal, fully working UTF-PARC 1.0 server using FastAPI.
+
+Run locally:
+
+    pip install fastapi uvicorn
+    uvicorn server.python.http_server:app --reload
+
+This server implements:
+
+    • POST /v1/parc/vector
+    • POST /v1/parc/update
+    • POST /v1/parc/batch
+    • POST /v1/parc/meta
+    • POST /v1/parc/validate
+"""
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List, Optional
 
 # ---------------------------------------------------------
-# Core PARC Functions (matches spec 1.0)
+# Import our local PARC engine
+# ---------------------------------------------------------
+from ...src.python.parc import (
+    encode_text,
+    update_state,
+    validate_parc
+)
+
+app = FastAPI(title="UTF-PARC Reference Server")
+
+
+# ---------------------------------------------------------
+# Request/Response Models
 # ---------------------------------------------------------
 
-def normalize_parc(v):
-    """Normalize and enforce UTF-PARC vector rules."""
-    c = float(v.get("c", 0.0))
-    m = float(v.get("m", 0.0))
-    k = float(v.get("k", 0.5))
-
-    # Keep c,m in [0,1]
-    c = max(0.0, min(1.0, c))
-    m = max(0.0, min(1.0, m))
-
-    # Enforce c + m ≤ 1
-    if c + m > 1:
-        total = c + m
-        c = c / total
-        m = m / total
-
-    # Fog rule
-    f = 1 - max(c, m)
-
-    return {"c": c, "m": m, "f": f, "k": k}
+class VectorRequest(BaseModel):
+    text: str
+    confidence_hint: Optional[float] = None
 
 
-def validate_parc(v):
-    """Validate UTF-PARC vector and return errors."""
-    errors = []
+class UpdateRequest(BaseModel):
+    state: dict
+    steps: int = 1
+    params: dict
 
-    # Must include all fields
-    for key in ["c", "m", "f", "k"]:
-        if key not in v:
-            errors.append(f"missing field: {key}")
 
-    # Range check
-    for k2 in ["c", "m", "f", "k"]:
-        if k2 in v:
-            if not (0.0 <= float(v[k2]) <= 1.0):
-                errors.append(f"{k2} out of range [0,1]")
+class BatchRequest(BaseModel):
+    texts: List[str]
 
-    c = float(v.get("c", 0))
-    m = float(v.get("m", 0))
-    f = float(v.get("f", 0))
 
-    # Constraint: c + m ≤ 1
-    if c + m > 1:
-        errors.append("c + m must not exceed 1")
+class MetaRequest(BaseModel):
+    vector: dict
+    meta: dict
 
-    # Constraint: fog rule
-    if abs(f - (1 - max(c, m))) > 1e-6:
-        errors.append("fog must equal 1 - max(c,m)")
 
+class ValidateRequest(BaseModel):
+    vector: dict
+
+
+# ---------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------
+
+@app.post("/v1/parc/vector")
+def compute_vector(req: VectorRequest):
+    state = encode_text(req.text, req.confidence_hint)
+    return state
+
+
+@app.post("/v1/parc/update")
+def update_vector(req: UpdateRequest):
+    result = update_state(req.state, req.steps, req.params)
+    return result
+
+
+@app.post("/v1/parc/batch")
+def batch_vector(req: BatchRequest):
+    results = [encode_text(t) for t in req.texts]
+    return {"results": results}
+
+
+@app.post("/v1/parc/meta")
+def attach_meta(req: MetaRequest):
+    vector = req.vector.copy()
+    vector["_parc_meta"] = req.meta
+    return vector
+
+
+@app.post("/v1/parc/validate")
+def validate(req: ValidateRequest):
+    return validate_parc(req.vector)
+
+
+# ---------------------------------------------------------
+# Root
+# ---------------------------------------------------------
+
+@app.get("/")
+def root():
     return {
-        "valid": len(errors) == 0,
-        "errors": errors
+        "status": "ok",
+        "message": "UTF-PARC Reference Server (Python)"
     }
-
-
-def encode_text(text, confidence_hint=None):
-    """
-    Minimal reference encoder:
-    This is NOT the production classifier.
-    It demonstrates the pipeline structure only.
-    """
-    t = text.lower().split()
-
-    c_keywords = ["is", "are", "means", "because"]
-    m_keywords = ["not", "wrong", "never", "unless"]
-
-    c = sum(1 for w in t if w in c_keywords) / max(1, len(t))
-    m = sum(1 for w in t if w in m_keywords) / max(1, len(t))
-
-    # Fog rule
-    f = 1 - max(c, m)
-
-    # Confidence
-    k = confidence_hint if confidence_hint is not None else 0.4
-
-    return normalize_parc({"c": c, "m": m, "f": f, "k": k})
-
-
-# ---------------------------------------------------------
-# HTTP Request Handler
-# ---------------------------------------------------------
-
-class PARCHandler(BaseHTTPRequestHandler):
-
-    def _json(self, code, payload):
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(json.dumps(payload).encode("utf-8"))
-
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length)
-        try:
-            data = json.loads(body.decode("utf-8"))
-        except Exception:
-            return self._json(400, {"error": "Invalid JSON"})
-
-        path = self.path
-
-        # ---------------------------------------------------------
-        # /v1/parc/vector
-        # ---------------------------------------------------------
-        if path == "/v1/parc/vector":
-            text = data.get("text", "")
-            conf = data.get("confidence_hint")
-            result = encode_text(text, conf)
-            return self._json(200, result)
-
-        # ---------------------------------------------------------
-        # /v1/parc/update
-        # ---------------------------------------------------------
-        if path == "/v1/parc/update":
-            v = data.get("state")
-            steps = int(data.get("steps", 1))
-            params = data.get("params", {})
-
-            gamma = float(params.get("gamma", 0.3))
-            delta = float(params.get("delta", 0.1))
-            beta  = float(params.get("beta", 0.5))
-            rho   = float(params.get("rho", 0.5))
-
-            for _ in range(steps):
-                c = v["c"] + gamma * (1 - v["c"] - v["m"])
-                m = v["m"] * (1 - delta - beta * v["c"])
-                k = max(0.0, min(1.0, v["k"] + rho * (1 - v["k"])))
-                f = 1 - max(c, m)
-                v = normalize_parc({"c": c, "m": m, "f": f, "k": k})
-
-            return self._json(200, v)
-
-        # ---------------------------------------------------------
-        # /v1/parc/batch
-        # ---------------------------------------------------------
-        if path == "/v1/parc/batch":
-            texts = data.get("texts", [])
-            results = [encode_text(t) for t in texts]
-            return self._json(200, {"results": results})
-
-        # ---------------------------------------------------------
-        # /v1/parc/validate
-        # ---------------------------------------------------------
-        if path == "/v1/parc/validate":
-            result = validate_parc(data.get("vector", {}))
-            return self._json(200, result)
-
-        # Unknown route
-        return self._json(404, {"error": "Unknown endpoint"})
-
-
-# ---------------------------------------------------------
-# Server Bootstrap
-# ---------------------------------------------------------
-
-def run(host="0.0.0.0", port=8000):
-    print(f"UTF-PARC Python server running at http://{host}:{port}")
-    server = HTTPServer((host, port), PARCHandler)
-    server.serve_forever()
-
-
-if __name__ == "__main__":
-    run()
