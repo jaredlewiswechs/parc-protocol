@@ -1,233 +1,247 @@
 # UTF-PARC 1.0 Specification  
-**Universal Cognitive State Encoding Standard**  
-Version: 1.0  
-Status: Open Standard Draft  
+**Universal Cognitive State Encoding Protocol**  
+Version 1.0 — (c) 2025 PARC Initiative — MIT Licensed
 
 ---
 
-# 1. Purpose
+## 1. Overview
 
-UTF-PARC defines a universal, model-agnostic encoding for representing cognitive states produced by any reasoning system — including LLMs, agents, symbolic solvers, humans (via annotation), or hybrid systems.
+UTF-PARC is a universal, model-agnostic protocol for encoding the cognitive state of any linguistic output into a **4-dimensional vector**: S = { c, m, f, k }
 
-Its purpose is to standardize the representation of:
+Where:
+
+| Component | Name | Meaning |
+|----------|-------|---------|
+| **c** | Correctness | Alignment with truth or intended concept |
+| **m** | Misconception | Strength of systematic wrongness |
+| **f** | Fog | Uncertainty, ambiguity, missing information |
+| **k** | Confidence | Meta-belief in the answer |
+
+These four dimensions are **epistemological primitives**.  
+Every reasoning system—human or machine—exhibits them.
+
+UTF-PARC standardizes how to represent them.
+
+---
+
+## 2. Motivation
+
+Existing systems output text.  
+But text reveals nothing about its internal cognitive state.
+
+LLMs, agents, tutors, robots, and reasoning engines need:
+
+- error detection  
+- misconception tracking  
+- hallucination monitoring  
+- uncertainty quantification  
+- calibration  
+- cross-model comparability  
+- safety diagnostics  
+- interpretability  
+- reasoning drift detection  
+
+UTF-PARC provides this interpretability layer.
+
+---
+
+## 3. Formal Structure
+
+A UTF-PARC vector is:
+c ∈ [0,1]
+m ∈ [0,1]
+f ∈ [0,1]
+k ∈ [0,1]
+
+With **global constraint**:
+c + m ≤ 1
+
+Fog is *derived*, not independent:
+f = 1 − max(c, m)
+
+Thus **only three degrees of freedom** exist:
 - correctness  
 - misconception  
-- uncertainty  
 - confidence  
 
-…into a **4-dimensional normalized vector** that can be understood, compared, logged, transmitted, or audited across models, domains, and platforms.
-
-UTF-PARC plays the same role for *cognitive state* that UTF-8 plays for *text*.
+Fog is always consistent with cognitive geometry.
 
 ---
 
-# 2. Cognitive Vector Definition
+## 4. Encoding Pipeline
 
-A UTF-PARC vector is a 4-tuple: S = (c, m, f, k)
+Any system producing text must follow: text → heuristic/semiotic encoder → normalize → temporal update (optional)
+### 4.1 Step 1 — Initial Heuristic Seed  
+Implementations may choose their own method, but MUST:
 
-Where each element satisfies: 
-c ∈ [0, 1]
-m ∈ [0, 1]
-f ∈ [0, 1]
-k ∈ [0, 1]
+- produce seeds {c0, m0, f0, k0}
+- allow domain-specific heuristics
+- allow LLM-based semantic scoring
+- allow rule-based systems
+- MUST clamp values to [0,1]
 
-Each dimension:
+### 4.2 Step 2 — Normalization (REQUIRED)
 
-| Symbol | Name | Meaning |
-|--------|------|---------|
-| **c** | correctness | Probability or degree of alignment with correct meaning |
-| **m** | misconception | Strength of an identifiable wrong pattern |
-| **f** | fog | Uncertainty, ambiguity, or lack of clarity |
-| **k** | confidence | Self-reported or inferred confidence level |
+All UTF-PARC encoders MUST enforce:
+c = clamp(c)
+m = clamp(m)
+k = clamp(k)
 
-Constraints:
-
-1. **Normalization rule**  c + m ≤ 1
-2. **Fog rule**  f = 1 − max(c, m)
-3. **Confidence stability constraint**  k should covary with c − m
-
-These constraints ensure consistency and interpretability.
-
----
-
-# 3. Conceptual Semantics
-
-UTF-PARC encodes **epistemic state**, not linguistic meaning.
-
-Examples:
-
-- High-c, low-m → likely correct  
-- Low-c, high-m → confidently wrong  
-- Low-c, low-m, high-f → unclear  
-- High-k, low-c → dangerous hallucination  
-- Medium-c, medium-m → mixed or contradictory answer  
-
-**This structure is universal across disciplines** (law, medicine, math, coding, etc).
-
----
-
-# 4. Encoding Algorithm (Reference Method)
-
-This section defines a reference approach.  
-Implementations MAY differ so long as output remains compliant.
-
-## 4.1 Base Interpretation Stage
-
-Input text is segmented into its meaningful components.
-
-An implementation MAY use:
-- transformer embeddings  
-- rule-based patterns  
-- token-level confidence  
-- symbolic logic checks  
-- domain models  
-- hybrid systems  
-
-The key requirement is to eventually produce estimates of:
-- correctness likelihood  
-- misconception likelihood  
-- uncertainty indicators  
-- confidence indicators  
-
-## 4.2 Normalization Stage (Required)
-
-Given raw values: c0, m0, f0?, k0
-
-Apply: 
-c = clamp(c0)
-m = clamp(m0)
 if c + m > 1:
-norm = c + m
-c /= norm
-m /= norm
+c = c / (c+m)
+m = m / (c+m)
 
-f = 1 - max(c, m)
-k = clamp(k0)
+f = 1 − max(c,m)
 
-This converts multiple model-dependent signals into a single, universal format.
+### 4.3 Step 3 — Temporal Update (OPTIONAL but Recommended)
 
-## 4.3 Optional: Temporal Update Equation
+Systems MAY apply dynamical refinement using:
 
-For systems tracking reasoning over time:
-c_{t+1} = c_t + γ (1 − c_t − m_t)
-m_{t+1} = m_t (1 − δ − β c_t)
-k_{t+1} = k_t + ρ (c_t − m_t − k_t)
+Parameters: gamma = learning influence
+delta = misconception decay
+beta  = correction scaling
+rho   = confidence calibration
+
+Update equations for each time step t: gamma_eff = gamma * (1 − m)
+delta_eff = delta + beta * c
+
+c_{t+1} = c_t + gamma_eff * (1 − c_t − m_t)
+m_{t+1} = m_t * (1 − delta_eff)
 f_{t+1} = 1 − max(c_{t+1}, m_{t+1})
+k_{t+1} = k_t + rho * (c_{t+1} − m_{t+1} − k_t)
 
-This is the PARC update equation used in simulations and educational contexts.
-
-It is **not required** for UTF-PARC compliance.
+Systems SHALL apply between 1–5 iterations.
 
 ---
 
-# 5. UTF-PARC Object Format
+## 5. Output Format
 
-Standard JSON encoding:
+UTF-PARC MUST output JSON:
 
 ```json
 {
+  "c": 0.74,
+  "m": 0.12,
+  "f": 0.26,
+  "k": 0.81
+}
+```
+All values MUST be floats in [0,1].
+
+6. Requirements for UTF-PARC Compliance
+
+To be compliant:
+	1.	Must implement all normalization rules
+	2.	Must output a valid {c,m,f,k} object
+	3.	Must recompute fog as 1 − max(c,m)
+	4.	Must expose an accessible parc_vector(text) or equivalent
+	5.	Should include transparent heuristics
+	6.	Should support temporal updates
+	7.	Should allow domain-specific extensions
+	8.	Must not redefine or reinterpret the four dimensions
+
+⸻
+
+7. Domain Extensions (Optional)
+
+UTF-PARC MAY be extended for:
+
+Education
+	•	concept mastery
+	•	misconception classification
+	•	knowledge graph alignment
+
+Law
+	•	argument validity
+	•	precedent alignment
+	•	factual grounding
+
+Medicine
+	•	diagnostic probability
+	•	misdiagnosis risk
+	•	clinical uncertainty
+
+Coding
+	•	bug likelihood
+	•	logic deviation
+	•	algorithmic confidence
+
+Each domain MAY append metadata via: _parc_meta
+{
+  "c": 0.61,
+  "m": 0.14,
+  "f": 0.39,
+  "k": 0.72,
+  "_parc_meta": {
+    "domain": "medical",
+    "misconception_type": "risk inversion"
+  }
+}
+
+8. Security & Safety Implications
+
+UTF-PARC is essential for:
+	•	hallucination alarms
+	•	sandboxed agents
+	•	cognitive drift detection
+	•	safety policy enforcement
+	•	risk-aware autonomous systems
+
+Example safety rule:
+If (m > 0.60 AND k > 0.70):
+    trigger "confident wrongness" failsafe
+
+
+UTF-PARC uses semantic versioning: MAJOR.MINOR.PATCH
+Version 1.0 guarantees:
+	•	stable vector definition
+	•	stable normalization rules
+	•	backward compatibility for all 1.x.x implementations
+
+
+
+
+
+In: "The mitochondria is the powerhouse of the cell."
+
+
+Out: {
   "c": 0.72,
   "m": 0.08,
   "f": 0.18,
   "k": 0.63
 }
-```
-Valid ranges:
-	•	floats in [0, 1]
-	•	at least 3 decimal places recommended
+
+11. License UTF-PARC 1.0 is published under:
+MIT License — free for all commercial + academic use
 
 
-6. Transmission Protocol (UTF-PARC-TP)
+12. Contact / Governance
 
-UTF-PARC vectors may be transmitted over any channel.
+The PARC specification is maintained by the HyperWeb PARC
 
-A UTF-PARC-TP packet:
-{
-  "text": "The sky is blue because of Rayleigh scattering.",
-  "parc": {
-    "c": 0.81,
-    "m": 0.02,
-    "f": 0.17,
-    "k": 0.71
-  },
-  "timestamp": "2025-11-25T12:00:00Z",
-  "model": "gemini-3-pro",
-  "version": "utf-parc-1.0"
-}
-Metadata fields are optional but recommended.
+Submissions / extensions / drafts via:
+	•	GitHub Issues
+	•	GitHub Pull Requests
+	•	Email: jn.lewis1@outlook.com
+	•	Draft proposals follow PIP (PARC Improvement Proposal) format
 
 
-7. Validation Rules
 
-A UTF-PARC vector is valid if:
-	1.	All keys exist
-	2.	All values ∈ [0, 1]
-	3.	c + m ≤ 1
-	4.	f = 1 − max(c, m)
-	5.	No NaN or INF values
-	6.	Keys use lowercase ASCII
+13. Summary
 
-8. Cross-Model Compatibility
+UTF-PARC 1.0 is:
+	•	lightweight
+	•	model-agnostic
+	•	domain-universal
+	•	deterministic
+	•	interpretable
+	•	safe
+	•	future-proof
 
-UTF-PARC does not define how reasoning is extracted — only how it is represented.
-
-This allows any system to provide cognitive state readings:
-	•	GPT-4
-	•	Gemini
-	•	Claude
-	•	Llama
-	•	Symbolic solvers
-	•	Autonomous agents
-	•	Multi-model pipelines
-
-As long as they output a valid (c, m, f, k) vector.
-
-9. Reference Implementations
-
-Included in /src/ of this repo:
-	•	/src/python/parc.py — Python reference
-	•	/src/js/parc.mjs — JavaScript module
-	•	/api/http-parc.md — HTTP interface
-
-These are the canonical examples of UTF-PARC compliant encoders.
-
-10. Versioning
-
-UTF-PARC uses semantic versioning:
-
-MAJOR.MINOR.PATCH
-
-Example:
-	•	1.0.0 — first stable release
-	•	1.1.0 — added dimensions or metadata
-	•	2.0.0 — breaking changes
-
-
-11. License
-
-UTF-PARC 1.0 is released under the MIT License.
-
-12. Contact
-
-For proposals, extensions, or standardization work:
-
-jn.lewis1@outlook.com or jared.lewis@outlook.com
+It is the UTF-8 of cognitive state. Any text → PARC → Universal meaning vector.
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
